@@ -1,48 +1,36 @@
 """
-Database Schemas
+Database Schemas for TheRawKing
 
-Define your MongoDB collection schemas here using Pydantic models.
-These schemas are used for data validation in your application.
-
-Each Pydantic model represents a collection in your database.
-Model name is converted to lowercase for the collection name:
-- User -> "user" collection
-- Product -> "product" collection
-- BlogPost -> "blogs" collection
+Each Pydantic model represents a MongoDB collection. Collection name is the lowercase of the class name.
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional
-
-# Example schemas (replace with your own):
-
-class User(BaseModel):
-    """
-    Users collection schema
-    Collection name: "user" (lowercase of class name)
-    """
-    name: str = Field(..., description="Full name")
-    email: str = Field(..., description="Email address")
-    address: str = Field(..., description="Address")
-    age: Optional[int] = Field(None, ge=0, le=120, description="Age in years")
-    is_active: bool = Field(True, description="Whether user is active")
+from typing import Optional, List
 
 class Product(BaseModel):
-    """
-    Products collection schema
-    Collection name: "product" (lowercase of class name)
-    """
     title: str = Field(..., description="Product title")
     description: Optional[str] = Field(None, description="Product description")
     price: float = Field(..., ge=0, description="Price in dollars")
-    category: str = Field(..., description="Product category")
-    in_stock: bool = Field(True, description="Whether product is in stock")
+    currency: str = Field("usd", description="ISO currency code")
+    images: List[str] = Field(default_factory=list, description="Image URLs")
+    sizes: List[str] = Field(default_factory=lambda: ["S","M","L","XL"], description="Available sizes")
+    in_stock: bool = Field(True, description="In stock flag")
+    featured: bool = Field(False, description="Featured on home page")
+    color: Optional[str] = Field(None, description="Color variant")
+    tag: Optional[str] = Field(None, description="Tag label like 'New' or 'Limited'")
 
-# Add your own schemas here:
-# --------------------------------------------------
+class OrderItem(BaseModel):
+    product_id: str = Field(..., description="Referenced product id")
+    title: str
+    price: float
+    quantity: int = Field(ge=1, default=1)
+    size: Optional[str] = None
 
-# Note: The Flames database viewer will automatically:
-# 1. Read these schemas from GET /schema endpoint
-# 2. Use them for document validation when creating/editing
-# 3. Handle all database operations (CRUD) directly
-# 4. You don't need to create any database endpoints!
+class Order(BaseModel):
+    email: str
+    items: List[OrderItem]
+    total: float
+    currency: str = "usd"
+    payment_status: str = Field("pending", description="pending | paid | failed | refunded")
+    stripe_payment_intent_id: Optional[str] = None
+    stripe_session_id: Optional[str] = None
