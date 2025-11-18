@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 
 from database import db, create_document, get_documents
 from schemas import Product, Order, OrderItem
@@ -66,7 +66,7 @@ MOON_PRODUCTS = [
     {
         "title": "Lunar Phase Tee",
         "description": "Premium cotton tee featuring the moon phases in subtle reflective ink.",
-        "price": 32.0,
+        "price": 45.0,
         "currency": "usd",
         "images": [
             "https://images.unsplash.com/photo-1520975693411-b2f4a45f66f6?q=80&w=1200&auto=format&fit=crop",
@@ -75,26 +75,46 @@ MOON_PRODUCTS = [
         "in_stock": True,
         "featured": True,
         "color": "Black",
-        "tag": "New",
+        "tag": "Core",
+        "category": "Core",
+        "stock_count": 42,
     },
     {
-        "title": "Moonrise Oversized Tee",
-        "description": "Oversized fit with gradient moonrise graphic – ultra-soft and breathable.",
-        "price": 38.0,
+        "title": "Midnight Runner",
+        "description": "Moisture-wicking performance fabric.",
+        "price": 55.0,
         "currency": "usd",
         "images": [
-            "https://images.unsplash.com/photo-1520975655913-61e5d1e0b5f4?q=80&w=1200&auto=format&fit=crop",
+            "https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?q=80&w=1200&auto=format&fit=crop",
         ],
         "sizes": ["S", "M", "L", "XL"],
         "in_stock": True,
         "featured": True,
         "color": "Midnight Blue",
-        "tag": "Limited",
+        "tag": "Street",
+        "category": "Street",
+        "stock_count": 18,
+    },
+    {
+        "title": "Lunar Graphic",
+        "description": "Bold moon-phase print.",
+        "price": 50.0,
+        "currency": "usd",
+        "images": [
+            "https://images.unsplash.com/photo-1618354691373-d851c5c3a990?q=80&w=1200&auto=format&fit=crop",
+        ],
+        "sizes": ["S", "M", "L", "XL"],
+        "in_stock": True,
+        "featured": True,
+        "color": "Black",
+        "tag": "Graphic",
+        "category": "Graphic",
+        "stock_count": 27,
     },
     {
         "title": "Eclipse Minimal Tee",
         "description": "Clean eclipse ring chest print. Minimal. Bold. Cosmic.",
-        "price": 29.0,
+        "price": 49.0,
         "currency": "usd",
         "images": [
             "https://images.unsplash.com/photo-1491553895911-0055eca6402d?q=80&w=1200&auto=format&fit=crop",
@@ -103,7 +123,9 @@ MOON_PRODUCTS = [
         "in_stock": True,
         "featured": False,
         "color": "Charcoal",
-        "tag": None,
+        "tag": "Minimal",
+        "category": "Minimal",
+        "stock_count": 9,
     },
 ]
 
@@ -131,15 +153,67 @@ class CreateCheckoutRequest(BaseModel):
     items: List[CreateCheckoutItem]
 
 
+class SubscribePayload(BaseModel):
+    email: EmailStr
+
+
 @app.get("/api/products")
-def list_products():
+def list_products(category: Optional[str] = None, sort: Optional[str] = None, limit: int = 24, offset: int = 0, featured: Optional[bool] = None, search: Optional[str] = None):
     if db is None:
         raise HTTPException(status_code=500, detail="Database not available")
     seed_products_if_empty()
-    docs = get_documents("product")
+
+    query = {}
+    if category and category.lower() != "all":
+        query["category"] = category
+    if featured is True:
+        query["featured"] = True
+    if search:
+        query["$or"] = [
+            {"title": {"$regex": search, "$options": "i"}},
+            {"description": {"$regex": search, "$options": "i"}},
+            {"tag": {"$regex": search, "$options": "i"}},
+        ]
+
+    sort_spec = [("created_at", -1)]
+    if sort == "price_asc":
+        sort_spec = [("price", 1)]
+    elif sort == "price_desc":
+        sort_spec = [("price", -1)]
+    elif sort == "newest":
+        sort_spec = [("created_at", -1)]
+
+    cursor = db["product"].find(query).sort(sort_spec).skip(offset).limit(max(1, min(100, limit)))
+    docs = list(cursor)
     for d in docs:
         d["id"] = str(d.pop("_id"))
     return {"products": docs}
+
+
+@app.get("/api/products/{product_id}")
+def get_product(product_id: str):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    try:
+        doc = db["product"].find_one({"_id": ObjectId(product_id)})
+    except Exception:
+        doc = None
+    if not doc:
+        raise HTTPException(status_code=404, detail="Product not found")
+    doc["id"] = str(doc.pop("_id"))
+    return doc
+
+
+@app.post("/api/subscribe")
+def subscribe_email(payload: SubscribePayload):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    email = payload.email.lower()
+    existing = db["email_subscriber"].find_one({"email": email})
+    if existing:
+        return {"ok": True, "message": "Already subscribed"}
+    db["email_subscriber"].insert_one({"email": email, "created_at": datetime.utcnow()})
+    return {"ok": True}
 
 
 @app.post("/api/create-checkout-session")
